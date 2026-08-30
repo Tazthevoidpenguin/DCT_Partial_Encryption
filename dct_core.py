@@ -22,21 +22,24 @@ def rgb_to_ycbcr(rgb: np.ndarray) -> np.ndarray:
     return np.stack((Y,Cb,Cr),axis=-1)
 
 def ycbcr_to_rgb(ycbcr: np.ndarray) -> np.ndarray:
-    Y=ycbcr[:,:,0]
-    Cb=ycbcr[:,:,1]
-    Cr=ycbcr[:,:,2]
+    Y=ycbcr[0,:,:]
+    Cb=ycbcr[1,:,:]
+    Cr=ycbcr[2,:,:]
     R = Y + 1.402*(Cr - 128)
     G = Y - 0.3441*(Cb - 128) - 0.7141*(Cr - 128)
     B = Y + 1.772*(Cb - 128)
     return np.stack((R,G,B),axis=-1)
 
+"""
+Cả hai hàm trên đều trả về dạng  [ , , 3]
+"""
 
 def pad_anh(anh: np.ndarray) -> Tuple[np.ndarray, Tuple[int, int]]:
     H,W,C=anh.shape
     pad_H = (8 - H % 8) % 8
     pad_W = (8 - W % 8) % 8
-    padded_anh = np.pad(anh, ((0, pad_H), (0, pad_W), (0, 0)), mode='constant', constant_values=0)
-    return padded_anh, (pad_H, pad_W)
+    padded_anh = np.pad(anh, ((0, pad_H), (0, pad_W), (0, 0)), mode='edge')
+    return padded_anh, (H, W)
     """
     Đắp padding vào ảnh cả 2 chiều để chia hết cho 8 chia chunk cho dễ =)))
     """
@@ -106,6 +109,10 @@ def scale_table(base_table: np.ndarray, quality: int) -> np.ndarray:
     return scaled_table.astype(np.uint8)
 
 def get_scaled_tables(quality: int) -> Tuple[np.ndarray, np.ndarray]:
+    if quality>100:
+        quality=100
+    elif quality<1:
+        quality=1
     luma_table = scale_table(LUMA_BASE, quality)
     chroma_table = scale_table(CHROMA_BASE, quality)
     return luma_table, chroma_table
