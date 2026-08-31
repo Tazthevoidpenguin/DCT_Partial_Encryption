@@ -6,7 +6,8 @@ Công thức ITU-R BT.601:
 Y  = 0.299*R + 0.587*G + 0.114*B
 Cb = -0.1687*R - 0.3313*G + 0.5*B + 128
 Cr = 0.5*R - 0.4187*G - 0.0813*B + 128
--> Đây là công thức chuẩn để chuyển đổi từ RGB sang YCbCr dạng ảnh.
+-> Đây là công thức chuẩn để chuyển đổi từ RGB sang YCbCr dạng ảnh, ngoài ra có thể tra các chuyển đổi dạng video, truyền hình,...
+
 Công thức ngược của nó là:
 R = Y + 1.402*(Cr - 128)
 G = Y - 0.3441*(Cb - 128) - 0.7141*(Cr - 128)
@@ -51,7 +52,7 @@ Công thức DCT-II:
     Hoặc có thể viết thành dạng: 
     T(u,x) = alpha(u) * cos((2x+1)*u*pi/16)
     Dùng cái trên để thành ma trận 1 chiều, sau đó khi có các block cần lượng tử hóa thì sẽ nhân theo kiểu DCT_2D = T @ block @ T.T (ma trân chuyển vị của T)
-Làm thế nào để chứng minh thì xem tại math_in_project.md
+-> Làm thế nào để chứng minh thì xem tại math_in_project.md
 
 """
 

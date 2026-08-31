@@ -1,0 +1,27 @@
+# Python cache
+__pycache__/
+*.py[cod]
+
+# Environment files and virtual environments
+.env
+.env.*
+!.env.example
+.venv/
+venv/
+env/
+
+# Generated output
+output/
+outputs/
+
+# Image files
+*.jpg
+*.jpeg
+*.png
+*.gif
+*.bmp
+*.webp
+*.tif
+*.tiff
+*.heic
+*.svg
