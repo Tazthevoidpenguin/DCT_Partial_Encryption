@@ -16,7 +16,6 @@ class EncryptConfig:
     dc_bitplanes: int = 7
     dc_bit_width: int = 7
     channels: Tuple [str,...] =  ("Y",)
-    nguongT: Optional[int] = None
 
 
 def zigzag_order()->tuple:
@@ -39,17 +38,47 @@ def derive_seed(key: bytes, nonce: bytes, label: str) -> int:
     return int.from_bytes(rs_digest[:16],'big') #tra ve so nguyen dang big-endian
 
 
-def _block_mask(heso: np.ndarray, block_mask: np.ndarray | None) -> np.ndarray:
-    expected_shape = (heso.shape[1] // 8, heso.shape[2] // 8)
-    if block_mask is None:
-        return np.ones(expected_shape, dtype=bool)
-    mask = np.asarray(block_mask, dtype=bool)
-    if mask.shape != expected_shape:
-        raise ValueError(f"block mask shape must be {expected_shape}, got {mask.shape}")
-    return mask
-"""
-Hàm trên đánh dấu các block mình chọn để mã hóa, nếu ko có gì (none) thì nó mặc định là mã hóa tất
-"""
+def _block_mask(heso: np.ndarray, mode: int,rng: np.random.Generator) -> np.ndarray:
+    block_shape = (heso.shape[1] // 8, heso.shape[2] // 8)
+    if mode==1:
+        return np.ones(block_shape, dtype=bool)
+    elif mode == 2: #tham khao code mang @@, no se lan dan tu trung tam ra ben canh
+        block_rows, block_cols = block_shape
+        total_blocks = block_rows * block_cols
+        min_count = max(1, total_blocks // 4)
+        max_count = max(min_count, total_blocks // 2)
+        selected_count = int(
+            rng.integers(min_count, max_count + 1)
+        )
+        center_row = (block_rows - 1) / 2
+        center_col = (block_cols - 1) / 2
+        rows, cols = np.indices(block_shape)
+        distances = (
+            (rows - center_row) ** 2
+            + (cols - center_col) ** 2
+        )
+        order = np.argsort(distances, axis=None)
+        rs = np.zeros(total_blocks, dtype=bool)
+        rs[order[:selected_count]] = True
+        return rs.reshape(block_shape)
+
+    elif mode==3:
+        rs=np.zeros(block_shape,dtype=bool)   
+        for i in range(block_shape[0]):
+            for j in range(block_shape[1]):
+                if (i+j)%2==0:
+                    rs[i,j]=True
+        return rs.reshape(block_shape)
+    
+    elif mode==4:
+        sum_block=block_shape[0]*block_shape[1]
+        max_cnt = max(1,sum_block//2)
+        random_blocks=rng.choice(sum_block,size=max_cnt,replace=False) #lay ngau nhien index cac block, replace = false de ko trung nhau
+
+        rs = np.zeros(sum_block,dtype=bool)
+        rs[random_blocks]=True
+        return rs.reshape(block_shape)
+    
 
 def AC_sign_flip(heso: np.ndarray, config: EncryptConfig, rng: np.random.Generator, block_mask: np.ndarray|None):
     AC_positions=ZIGZAG[1:config.ac_count+1] #vị trí những AC sẽ đảo
@@ -77,7 +106,7 @@ def DC_bitplane_scramble(heso: np.ndarray, config: EncryptConfig, rng: np.random
         idx={"Y":0,"Cb":1,"Cr":2} [tmp]
         DC_all=heso[idx,0::8,0::8] #lấy bit DC của từng block
         values=DC_all[blockR,blockC].astype(np.int64)
-        signs=np.sign(values) #AI phat hien neu DC_dau=-1 -> DC_cuoi=0 thi se mat dau, chua biet cach sua
+        signs=np.sign(values) #AI phat hien neu DC_dau la so am ma nho qua -> DC_cuoi=0 thi se mat dau ->decode no bi thung lo cho, de nghien cuu sua sau =)))
         duong=np.abs(values)
 
         low_bit =duong&low_cnt #mảng các lowbits
@@ -93,6 +122,8 @@ def DC_bitplane_scramble(heso: np.ndarray, config: EncryptConfig, rng: np.random
         """
         Ví dụ trong tài liệu có nói tới sửa 2 bit cao nhất thì nó sẽ như này:
         for i in range(config.dc_bit_width - 2, config.dc_bit_width):
+        
+        for i in range(config.dc_bitplanes):
         """
         rs= signs*((high_bit<<config.dc_bit_width) | low_bit)
         DC_all[blockR,blockC]=rs
@@ -121,23 +152,27 @@ def DC_bitplane_reverse(heso: np.ndarray, config: EncryptConfig, rng: np.random.
         rs= signs*((high_bit<<config.dc_bit_width) | low_bit)
         DC_all[blockR,blockC]=rs
 
-def split(heso: np.ndarray, config: EncryptConfig, rng: np.random.Generator, block_mask: np.ndarray|None):
+def stegno(heso: np.ndarray, config: EncryptConfig, rng: np.random.Generator, block_mask: np.ndarray|None) -> np.ndarray:
     return 
 
 
 
 
-def call_enc(heso: np.ndarray,config: EncryptConfig, block_mask: np.ndarray|None, pub_data: dict, key:bytes) -> np.ndarray:
+def call_enc(heso: np.ndarray,config: EncryptConfig, block_mask_mode:int, pub_data: dict, key:bytes) -> np.ndarray:
     rs= heso.copy()
-    Mask=_block_mask(rs,block_mask)
-    nonce= secrets.token_bytes(16) #sinh random tu OS nen rat cham va bao mat
+    nonce= secrets.token_bytes(16) #sinh random tu OS nen cham hon nhung bao mat hon va hoan toan random, ko the doan duoc seed
     pub_data["Nonce"]=nonce
+
     seed_ac = derive_seed(key,nonce,"ac")
     seed_dc = derive_seed(key,nonce,"dc")
-    seed_T = derive_seed(key, nonce,"T")
+    seed_stegno = derive_seed(key, nonce,"steg")
+    seed_mask = derive_seed(key,nonce,"mask")
     rng_ac = np.random.default_rng(seed_ac)
     rng_dc = np.random.default_rng(seed_dc)
-    rng_T = np.random.default_rng(seed_T)
+    rng_steg = np.random.default_rng(seed_stegno)
+    rng_mask = np.random.default_rng(seed_mask)
+
+    Mask=_block_mask(rs,block_mask_mode,rng_mask)
 
     if config.mode == "ac_sign":
         AC_sign_flip(rs,config,rng_ac,Mask)
@@ -146,12 +181,12 @@ def call_enc(heso: np.ndarray,config: EncryptConfig, block_mask: np.ndarray|None
     elif config.mode == "hybrid":
         AC_sign_flip(rs,config,rng_ac,Mask)
         DC_bitplane_scramble(rs,config,rng_dc,Mask)
-    elif config.mode == "split":
-        split(rs,config,rng_T,Mask)
+    elif config.mode == "stegno":
+        stegno(rs,config,rng_steg,Mask)
     return rs
         
 
-def call_dec(path_inp:str,key: bytes,block_mask: np.ndarray|None) -> np.ndarray:
+def call_dec(path_inp:str,key: bytes) -> Tuple[np.ndarray,np.ndarray,Tuple[int,int],np.array]:
     base = Path(path_inp)
     metadata_inp = base.with_suffix(".json")
     payload_inp = base.with_suffix(".payload.npz")
@@ -171,17 +206,24 @@ def call_dec(path_inp:str,key: bytes,block_mask: np.ndarray|None) -> np.ndarray:
         enc_heso=payload["heso"].copy()
         luma=payload["luma_table"]
         chroma=payload["chroma_table"]
+        mask_mode=payload["block_mask_mode"]
+        if "alpha" in payload.files:
+            alpha = payload["alpha"].copy()
+        else:
+            alpha = None
     q_table=[luma,chroma,chroma]
-    
-    Mask=_block_mask(enc_heso,block_mask)
+
 
     seed_ac = derive_seed(key,nonce,"ac")
     seed_dc = derive_seed(key,nonce,"dc")
-    seed_T = derive_seed(key, nonce,"T")
+    seed_stegno = derive_seed(key, nonce,"steg")
+    seed_mask = derive_seed(key, nonce,"mask")
     rng_ac = np.random.default_rng(seed_ac)
     rng_dc = np.random.default_rng(seed_dc)
-    rng_T = np.random.default_rng(seed_T)
+    rng_steg = np.random.default_rng(seed_stegno)
+    rng_mask = np.random.default_rng(seed_mask)
 
+    Mask=_block_mask(enc_heso,mask_mode,rng_mask)
 
     if config.mode == "ac_sign":
         AC_sign_flip(enc_heso,config,rng_ac,Mask)
@@ -190,7 +232,7 @@ def call_dec(path_inp:str,key: bytes,block_mask: np.ndarray|None) -> np.ndarray:
     elif config.mode == "hybrid":
         DC_bitplane_reverse(enc_heso,config,rng_dc,Mask)
         AC_sign_flip(enc_heso,config,rng_ac,Mask)
-    #elif config.mode == "split":
+    #elif config.mode == "stegno":
     #   split(enc_heso,config,rng_T,Mask)
     
-    return enc_heso
+    return enc_heso,q_table,ori_size,alpha

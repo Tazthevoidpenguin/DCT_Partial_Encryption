@@ -123,6 +123,7 @@ Theo tài liệu và mấy vid tôi xem thì mấy bảng này sẽ được sca
 https://www.youtube.com/watch?v=Q2aEzeMDHMA&t=12s
 https://www.youtube.com/watch?v=DS8N8cFVd-E
 
+Công thức thì như code trên
 """
 
 def dct_xuoi(anh: np.ndarray, quan_table: np.ndarray) -> np.ndarray:

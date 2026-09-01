@@ -25,7 +25,7 @@ class PipelineRun:
     def __init__(self,config: PipelineConfig):
         self.config = config
 
-    def encode(self,path_inp:str,out_name:str,key:bytes,key_id:str):
+    def encode(self,path_inp:str,out_name:str,key:bytes,key_id:str,mask_mode:int):
         with Image.open(path_inp) as img:
             rgb=np.array(img.convert("RGB"),dtype=np.uint8) 
             Alpha= np.array(img.getchannel("A"),dtype=np.uint8) if "A" in img.getbands() else None
@@ -46,7 +46,7 @@ class PipelineRun:
         pub_data["encryption"]=asdict(self.config.encryp)
         pub_data["key_id"]=key_id
         if self.config.encryp:
-            enc_heso=call_enc(heso,self.config.encryp,block_mask=None,pub_data=pub_data,key=key)
+            enc_heso=call_enc(heso,self.config.encryp,block_mask_mode=mask_mode,pub_data=pub_data,key=key)
         else:
             enc_heso=heso.copy()
 
@@ -70,15 +70,22 @@ class PipelineRun:
         with open(data_path,"w",encoding="utf-8") as f:
             json.dump(pub_data,f,default=handle_bytes,indent=4)
         if Alpha is not None:
-            np.savez_compressed(payload_path,heso=enc_heso,luma_table=luma_scaled,chroma_table=chroma_scaled,alpha=Alpha)
+            np.savez_compressed(payload_path,heso=enc_heso,luma_table=luma_scaled,chroma_table=chroma_scaled,alpha=Alpha,block_mask_mode=mask_mode)
         else:
-            np.savez_compressed(payload_path,heso=enc_heso,luma_table=luma_scaled,chroma_table=chroma_scaled)
+            np.savez_compressed(payload_path,heso=enc_heso,luma_table=luma_scaled,chroma_table=chroma_scaled,block_mask_mode=mask_mode)
 
     def decode(self,path_inp:str,path_out:str,key:bytes):
-        decoded_channels=call_dec(path_inp=path_inp,key=key,block_mask=None)
+        dec_heso,q_table,ori_size,alpha=call_dec(path_inp=path_inp,key=key)
+        ycbcr=np.stack([dct_nguoc(dec_heso[i],q_table[i]) for i in range(3)])
+        ycbcr=ycbcr[:,:ori_size[0],:ori_size[1],]
+        RGB=ycbcr_to_rgb(ycbcr)
+        RGB=np.clip(np.rint(RGB),0,255).astype(np.uint8)
 
 
-
+        decoded_img = Image.fromarray(RGB, mode="RGB")
+        if alpha is not None:
+            decoded_img.putalpha(Image.fromarray(alpha, mode="L")) #dap lai alpha cho RGBA
+        decoded_img.save(path_out)
 
 
 
