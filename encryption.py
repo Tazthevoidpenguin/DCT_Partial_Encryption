@@ -100,17 +100,18 @@ def AC_sign_flip(heso: np.ndarray, config: EncryptConfig, rng: np.random.Generat
 
 
 def DC_bitplane_scramble(heso: np.ndarray, config: EncryptConfig, rng: np.random.Generator, block_mask: np.ndarray|None):
-    low_cnt= (1<<config.dc_bit_width) -1 #Số bit để tách
+    low_cnt= (1<<config.dc_bit_width) -1 #Mask giữ dc_bit_width bit thấp
     blockR,blockC=np.nonzero(block_mask)
     for tmp in config.channels:
         idx={"Y":0,"Cb":1,"Cr":2} [tmp]
         DC_all=heso[idx,0::8,0::8] #lấy bit DC của từng block
         values=DC_all[blockR,blockC].astype(np.int64)
-        signs=np.sign(values) #AI phat hien neu DC_dau la so am ma nho qua -> DC_cuoi=0 thi se mat dau ->decode no bi thung lo cho, de nghien cuu sua sau =)))
-        duong=np.abs(values)
 
-        low_bit =duong&low_cnt #mảng các lowbits
-        high_bit=duong>>config.dc_bit_width #mảng các highbits
+        # Tách trực tiếp trên biểu diễn bù hai của số nguyên có dấu.
+        # Không dùng abs/sign vì một hệ số có thể tạm thành 0 sau khi
+        # hoán vị, làm np.sign(0) đánh mất dấu ban đầu.
+        low_bit=values&low_cnt
+        high_bit=values&~low_cnt
         
         for i in range(config.dc_bitplanes):
             bits= (low_bit>>i)&1 #bit_plane thu i
@@ -125,21 +126,19 @@ def DC_bitplane_scramble(heso: np.ndarray, config: EncryptConfig, rng: np.random
         
         for i in range(config.dc_bitplanes):
         """
-        rs= signs*((high_bit<<config.dc_bit_width) | low_bit)
+        rs=high_bit | low_bit
         DC_all[blockR,blockC]=rs
 
 def DC_bitplane_reverse(heso: np.ndarray, config: EncryptConfig, rng: np.random.Generator, block_mask: np.ndarray|None):
-    low_cnt= (1<<config.dc_bit_width) -1 #Số bit để tách
+    low_cnt= (1<<config.dc_bit_width) -1 #Mask giữ dc_bit_width bit thấp
     blockR,blockC=np.nonzero(block_mask)
     for tmp in config.channels:
         idx={"Y":0,"Cb":1,"Cr":2} [tmp]
         DC_all=heso[idx,0::8,0::8] #lấy bit DC của từng block
         values=DC_all[blockR,blockC].astype(np.int64)
-        signs=np.sign(values) #AI phat hien neu DC_dau=-1 -> DC_cuoi=0 thi se mat dau, chua biet cach sua
-        duong=np.abs(values)
 
-        low_bit =duong&low_cnt #mảng các lowbits
-        high_bit=duong>>config.dc_bit_width #mảng các highbits
+        low_bit=values&low_cnt
+        high_bit=values&~low_cnt
         
         for i in range(config.dc_bitplanes):
             bits= (low_bit>>i)&1 #bit_plane thu i
@@ -149,7 +148,7 @@ def DC_bitplane_reverse(heso: np.ndarray, config: EncryptConfig, rng: np.random.
             low_bit= low_bit & ~(1<<i) #xoa bit thu i cu
             low_bit= low_bit | (reversed_bits<<i) #gan bit thu i moi
 
-        rs= signs*((high_bit<<config.dc_bit_width) | low_bit)
+        rs=high_bit | low_bit
         DC_all[blockR,blockC]=rs
 
 def stegno(heso: np.ndarray, config: EncryptConfig, rng: np.random.Generator, block_mask: np.ndarray|None) -> np.ndarray:
