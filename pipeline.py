@@ -6,6 +6,7 @@ from encryption import call_enc, EncryptConfig, call_dec
 from dct_core import (
     rgb_to_ycbcr,ycbcr_to_rgb,pad_anh,get_scaled_tables,dct_xuoi,dct_nguoc
 )
+from stegno import StegnoConfig, embed, extract
 from PIL import Image
 from pathlib import Path
 
@@ -14,18 +15,17 @@ def handle_bytes(obj):
         return obj.hex()
     raise TypeError
 
-
-
 @dataclass
 class PipelineConfig:
     quality: int=75
     encryp: EncryptConfig = None
+    stegno: StegnoConfig = None
 
 class PipelineRun:
     def __init__(self,config: PipelineConfig):
         self.config = config
 
-    def encode(self,path_inp:str,out_name:str,key:bytes,key_id:str,mask_mode:int):
+    def encode(self,path_inp:str,out_name:str,key:bytes,mask_mode:int,inp_steg:str=""):
         with Image.open(path_inp) as img:
             rgb=np.array(img.convert("RGB"),dtype=np.uint8) 
             Alpha= np.array(img.getchannel("A"),dtype=np.uint8) if "A" in img.getbands() else None
@@ -44,11 +44,13 @@ class PipelineRun:
         pub_data["ori_size"]=ori_size
         pub_data["quality"]=self.config.quality
         pub_data["encryption"]=asdict(self.config.encryp)
-        pub_data["key_id"]=key_id
-        if self.config.encryp:
-            enc_heso=call_enc(heso,self.config.encryp,block_mask_mode=mask_mode,pub_data=pub_data,key=key)
+        if(self.config.encryp.mode=="stegno"):
+            enc_heso=embed(heso,self.config.stegno,key,pub_data,inp_steg)
         else:
-            enc_heso=heso.copy()
+            if self.config.encryp:
+                enc_heso=call_enc(heso,self.config.encryp,block_mask_mode=mask_mode,pub_data=pub_data,key=key)
+            else:
+                enc_heso=heso.copy()
 
         #chuyen nguoc ve de preview
         enc_channel= np.stack([dct_nguoc(enc_heso[i],q_table[i]) for i in range(3)])
@@ -64,15 +66,22 @@ class PipelineRun:
         img_path = base
         data_path = base.with_suffix(".json")
         payload_path = base.with_suffix(".payload.npz")
-        pub_data["output_mahoa"]=str(img_path)
+        steg_path = base.with_suffix(".npz")
+        if(self.config.encryp.mode=="stegno"):
+            pub_data["output_stegno"]=str(img_path)
+        else:
+            pub_data["output_mahoa"]=str(img_path)
 
         enc_img.save(img_path)
         with open(data_path,"w",encoding="utf-8") as f:
             json.dump(pub_data,f,default=handle_bytes,indent=4)
-        if Alpha is not None:
-            np.savez_compressed(payload_path,heso=enc_heso,luma_table=luma_scaled,chroma_table=chroma_scaled,alpha=Alpha,block_mask_mode=mask_mode)
+        if(self.config.encryp.mode=="stegno"):
+            np.savez_compressed(steg_path,heso=enc_heso)
         else:
-            np.savez_compressed(payload_path,heso=enc_heso,luma_table=luma_scaled,chroma_table=chroma_scaled,block_mask_mode=mask_mode)
+            if Alpha is not None:
+                np.savez_compressed(payload_path,heso=enc_heso,luma_table=luma_scaled,chroma_table=chroma_scaled,alpha=Alpha,block_mask_mode=mask_mode)
+            else:
+                np.savez_compressed(payload_path,heso=enc_heso,luma_table=luma_scaled,chroma_table=chroma_scaled,block_mask_mode=mask_mode)
 
     def decode(self,path_inp:str,path_out:str,key:bytes):
         dec_heso,q_table,ori_size,alpha=call_dec(path_inp=path_inp,key=key)
@@ -86,6 +95,27 @@ class PipelineRun:
         if alpha is not None:
             decoded_img.putalpha(Image.fromarray(alpha, mode="L")) #dap lai alpha cho RGBA
         decoded_img.save(path_out)
+
+    def extract_stegno(self,path_inp:str,key:bytes)->bytes:
+        base=Path(path_inp)
+        metadata_path=base.with_suffix(".json")
+        steg_path=base.with_suffix(".npz")
+
+        with open(metadata_path,"r",encoding="utf-8") as f:
+            metadata=json.load(f)
+
+        config=StegnoConfig(
+            delta=metadata["delta"],
+            ac_start=metadata["ac_start"],
+            ac_end=metadata["ac_end"],
+        )
+        nonce=bytes.fromhex(metadata["nonce"])
+        payload_len=metadata["payload_len"]
+
+        with np.load(steg_path,allow_pickle=False) as steg_data:
+            heso=steg_data["heso"].copy()
+
+        return extract(heso,config,key,nonce,payload_len)
 
 
 

@@ -151,11 +151,6 @@ def DC_bitplane_reverse(heso: np.ndarray, config: EncryptConfig, rng: np.random.
         rs=high_bit | low_bit
         DC_all[blockR,blockC]=rs
 
-def stegno(heso: np.ndarray, config: EncryptConfig, rng: np.random.Generator, block_mask: np.ndarray|None) -> np.ndarray:
-    return 
-
-
-
 
 def call_enc(heso: np.ndarray,config: EncryptConfig, block_mask_mode:int, pub_data: dict, key:bytes) -> np.ndarray:
     rs= heso.copy()
@@ -164,11 +159,9 @@ def call_enc(heso: np.ndarray,config: EncryptConfig, block_mask_mode:int, pub_da
 
     seed_ac = derive_seed(key,nonce,"ac")
     seed_dc = derive_seed(key,nonce,"dc")
-    seed_stegno = derive_seed(key, nonce,"steg")
     seed_mask = derive_seed(key,nonce,"mask")
     rng_ac = np.random.default_rng(seed_ac)
     rng_dc = np.random.default_rng(seed_dc)
-    rng_steg = np.random.default_rng(seed_stegno)
     rng_mask = np.random.default_rng(seed_mask)
 
     Mask=_block_mask(rs,block_mask_mode,rng_mask)
@@ -180,8 +173,6 @@ def call_enc(heso: np.ndarray,config: EncryptConfig, block_mask_mode:int, pub_da
     elif config.mode == "hybrid":
         AC_sign_flip(rs,config,rng_ac,Mask)
         DC_bitplane_scramble(rs,config,rng_dc,Mask)
-    elif config.mode == "stegno":
-        stegno(rs,config,rng_steg,Mask)
     return rs
         
 
@@ -197,7 +188,6 @@ def call_dec(path_inp:str,key: bytes) -> Tuple[np.ndarray,np.ndarray,Tuple[int,i
     Doan nay sua khong hieu lam, codex bao la neu de nguyen EncryptConfig(metadata["encryption"]) 
     thi se bi ep tat ca vao thuoc tinh mode nen phai bung ra bang dau **
     """
-    key_id=metadata["key_id"]
     nonce=bytes.fromhex(metadata["Nonce"])
     #ko can quality vi da luu 2 table
 
@@ -215,11 +205,9 @@ def call_dec(path_inp:str,key: bytes) -> Tuple[np.ndarray,np.ndarray,Tuple[int,i
 
     seed_ac = derive_seed(key,nonce,"ac")
     seed_dc = derive_seed(key,nonce,"dc")
-    seed_stegno = derive_seed(key, nonce,"steg")
     seed_mask = derive_seed(key, nonce,"mask")
     rng_ac = np.random.default_rng(seed_ac)
     rng_dc = np.random.default_rng(seed_dc)
-    rng_steg = np.random.default_rng(seed_stegno)
     rng_mask = np.random.default_rng(seed_mask)
 
     Mask=_block_mask(enc_heso,mask_mode,rng_mask)
@@ -231,7 +219,5 @@ def call_dec(path_inp:str,key: bytes) -> Tuple[np.ndarray,np.ndarray,Tuple[int,i
     elif config.mode == "hybrid":
         DC_bitplane_reverse(enc_heso,config,rng_dc,Mask)
         AC_sign_flip(enc_heso,config,rng_ac,Mask)
-    #elif config.mode == "stegno":
-    #   split(enc_heso,config,rng_T,Mask)
     
     return enc_heso,q_table,ori_size,alpha

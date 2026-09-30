@@ -226,3 +226,267 @@ $$
 $$
 
 Giới hạn 31 bảo đảm kết quả vẫn nằm trong miền `int32` đang dùng để lưu các hệ số DCT. Phép tính trung gian được thực hiện bằng `int64` để tránh lỗi tràn số khi tạo mask và thao tác bit.
+
+# 3. Nhúng một bit bằng AC-QIM trong `cal_AC()`
+
+Hàm `cal_AC()` nhận một hệ số AC đã lượng tử hóa $c$, bước lượng tử QIM
+$\Delta$ và bit cần nhúng $b \in \{0,1\}$. Mục tiêu là thay đổi độ lớn của hệ số
+đến mức gần nhất mang đúng parity của $b$, đồng thời giữ lại dấu ban đầu của hệ
+số.
+
+```python
+def cal_AC(ac: int, delta: int, bit: np.uint8) -> int:
+    dau = 1
+    if ac < 0:
+        dau = -1
+    tmp = round(abs(ac) / delta)
+    if tmp % 2 != bit:
+        giam = tmp - 1
+        tang = tmp + 1
+        if giam < 0:
+            tmp = tang
+        elif abs(abs(ac) - giam * delta) <= abs(abs(ac) - tang * delta):
+            tmp = giam
+        else:
+            tmp = tang
+    return tmp * delta * dau
+```
+
+## 3.1. Tách dấu và độ lớn của hệ số
+
+Dấu của hệ số được xác định bởi:
+
+$$
+s(c) =
+\begin{cases}
+-1 & \text{nếu } c < 0 \\
+1 & \text{nếu } c \geq 0
+\end{cases}
+$$
+
+Phần QIM chỉ thao tác trên độ lớn:
+
+$$
+m = |c|
+$$
+
+Khác với phép hoán vị bit DC ở mục 2, trường hợp $c=0$ không làm mất thông tin
+dấu vì AC-QIM không cần khôi phục lại hệ số ban đầu. Code quy ước dấu của 0 là
+dương để có thể đẩy hệ số 0 lên một mức QIM dương khi cần nhúng bit 1.
+
+## 3.2. Chia độ lớn thành các mức QIM
+
+Chỉ số mức QIM gần hệ số ban đầu nhất được tính bằng:
+
+$$
+t = \operatorname{round}\left(\frac{|c|}{\Delta}\right)
+$$
+
+Độ lớn tương ứng với chỉ số $t$ là:
+
+$$
+m_t = t\Delta
+$$
+
+Parity của $t$ biểu diễn bit được nhúng:
+
+$$
+b = t \bmod 2
+$$
+
+Vì vậy hai họ mức QIM là:
+
+$$
+\mathcal{Q}_0 = \{0, 2\Delta, 4\Delta, 6\Delta, \ldots\}
+$$
+
+$$
+\mathcal{Q}_1 = \{\Delta, 3\Delta, 5\Delta, 7\Delta, \ldots\}
+$$
+
+Nếu $t \bmod 2=b$ thì mức gần nhất đã thuộc đúng họ cần nhúng và không cần đổi
+parity của $t$.
+
+## 3.3. Chọn mức gần nhất khi parity chưa đúng
+
+Nếu $t \bmod 2 \neq b$, hai chỉ số kề bên $t-1$ và $t+1$ đều có parity ngược
+với $t$, tức cùng parity với bit $b$. Code đặt:
+
+$$
+t_{-} = t-1, \qquad t_{+}=t+1
+$$
+
+Chỉ số âm không hợp lệ vì nó không thể biểu diễn độ lớn. Tập ứng viên được viết
+thành:
+
+$$
+\mathcal{C}_b(t)
+=
+\left\{
+k \in \{t-1,t+1\}
+\;\middle|\;
+k \geq 0,\ k \bmod 2=b
+\right\}
+$$
+
+Trong các ứng viên hợp lệ, chọn chỉ số làm thay đổi độ lớn của hệ số ít nhất:
+
+$$
+q
+=
+\underset{k \in \mathcal{C}_b(t)}{\operatorname{argmin}}
+\left|\,|c|-k\Delta\right|
+$$
+
+Nếu hai phía có cùng khoảng cách, code ưu tiên $t-1$ thông qua toán tử `<=`.
+Nếu $t-1<0$ thì chỉ còn $t+1$ là ứng viên hợp lệ.
+
+Toàn bộ phép chọn chỉ số có thể viết gọn dưới dạng:
+
+$$
+q =
+\begin{cases}
+t
+& \text{nếu } t \bmod 2=b \\
+t+1
+& \text{nếu } t \bmod 2\neq b \text{ và } t-1<0 \\
+t-1
+& \text{nếu } t \bmod 2\neq b
+  \text{ và }
+  \left||c|-(t-1)\Delta\right|
+  \leq
+  \left||c|-(t+1)\Delta\right| \\
+t+1
+& \text{trong các trường hợp còn lại}
+\end{cases}
+$$
+
+## 3.4. Ghép lại dấu của hệ số
+
+Sau khi chọn được $q$, độ lớn mới là:
+
+$$
+m' = q\Delta
+$$
+
+Hệ số AC sau khi nhúng là:
+
+$$
+c' = s(c)\,q\Delta
+$$
+
+Đây chính là biểu thức được trả về bởi:
+
+```python
+return tmp * delta * dau
+```
+
+Do $|c'|/\Delta=q$ và $q \bmod 2=b$, bit có thể được trích lại bằng:
+
+$$
+\hat{b}
+=
+\operatorname{round}\left(\frac{|c'|}{\Delta}\right)
+\bmod 2
+$$
+
+## 3.5. Ví dụ với $c=7$ và $\Delta=3$
+
+Chỉ số QIM ban đầu là:
+
+$$
+t
+=
+\operatorname{round}\left(\frac{7}{3}\right)
+=2
+$$
+
+Nếu cần nhúng bit 0 thì $2 \bmod 2=0$, do đó giữ $q=2$:
+
+$$
+c' = 1 \times 2 \times 3 = 6
+$$
+
+Nếu cần nhúng bit 1 thì xét hai ứng viên $q=1$ và $q=3$:
+
+$$
+|7-1\times3|=4
+$$
+
+$$
+|7-3\times3|=2
+$$
+
+Vì mức 9 gần 7 hơn mức 3 nên chọn $q=3$:
+
+$$
+c' = 1 \times 3 \times 3 = 9
+$$
+
+Nếu hệ số đầu vào là $c=-7$, cùng phép chọn độ lớn được thực hiện nhưng dấu âm
+được ghép lại ở cuối, tạo kết quả tương ứng là $-6$ hoặc $-9$.
+
+## 3.6. Cơ chế lưu hệ số stegno trong file `.npz`
+
+Gọi $C$ là tensor hệ số DCT đã lượng tử hóa của ba kênh và $C'$ là tensor sau
+khi AC-QIM sửa các carrier trên kênh Y. Ảnh stegno được dựng bằng biến đổi ngược:
+
+$$
+I' = \operatorname{RGB}
+\left(
+\operatorname{IDCT}(C')
+\right)
+$$
+
+Khi $I'$ được làm tròn về pixel 8 bit, một số giá trị bị làm tròn hoặc chặn vào
+đoạn $[0,255]$. Nếu đọc ảnh rồi DCT và lượng tử hóa lại, tensor thu được chỉ là
+một xấp xỉ của $C'$:
+
+$$
+\widehat{C}'
+=
+\operatorname{Quantize}
+\left(
+\operatorname{DCT}
+\left(
+\operatorname{YCbCr}(I')
+\right)
+\right)
+$$
+
+Thông thường:
+
+$$
+\widehat{C}' \neq C'
+$$
+
+Sai lệch này có thể làm parity QIM đổi và khiến payload bị sai. Pipeline hiện
+tại tránh sai lệch đó bằng cách lưu trực tiếp tensor $C'$:
+
+```python
+np.savez_compressed(steg_path, heso=enc_heso)
+```
+
+File `.npz` là một container nén của NumPy. Nó không lưu trực tiếp chuỗi text;
+nó lưu chính xác mảng hệ số sau khi các bit đã được nhúng. Khi trích payload,
+pipeline tải lại mảng này:
+
+```python
+with np.load(steg_path, allow_pickle=False) as steg_data:
+    heso = steg_data["heso"].copy()
+```
+
+Sau đó `extract()` tái tạo thứ tự carrier từ `key`, `nonce` và cấu hình, rồi đọc
+parity trực tiếp trên $C'$. Vì không có bước dựng ảnh rồi DCT lại nên:
+
+$$
+\widehat{C}' = C'
+$$
+
+và payload được khôi phục đúng trong phạm vi demo.
+
+Đổi lại, đây là cơ chế **steganography có sidecar**, chưa phải giấu tin tự chứa
+hoàn toàn trong ảnh. Người nhận cần cả ảnh stegno, JSON và file `.npz`. Nếu bỏ
+`.npz`, thuật toán phải được cải tiến để parity vẫn ổn định sau chuỗi IDCT, làm
+tròn pixel, chuyển màu và DCT lại; chỉ tăng $\Delta$ trong cách cài đặt hiện tại
+chưa bảo đảm khôi phục nguyên payload.
